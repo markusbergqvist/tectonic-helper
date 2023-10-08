@@ -1,0 +1,689 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <style>
+            table {
+                border:4px solid black;
+            }
+            td {
+                height: 60px;
+                width: 60px;
+                text-align: center;
+                border: 1px dashed gray;
+            }
+            .solved {
+                font-size:40px ;
+                font-weight: bold;
+            }
+            .arrow {
+                stroke:red; stroke-width: 1.25px; fill: none;
+                marker-end: url(#arrow);
+            }
+            .top_border {
+                border-top: 2px solid black;
+            }
+            .right_border {
+                border-right: 2px solid black;
+            }
+            .bottom_border {
+                border-bottom: 2px solid black;
+            }
+            .left_border {
+                border-left: 2px solid black;
+            }
+            .selected {
+                border:2px solid purple;
+            }
+            .highlight {
+                border:2px solid yellow;
+            }
+            .support {
+                border:2px solid blue;
+            }
+        </style>
+        <script>
+            
+            var board = [];
+            var group_colors = ["white", "lightblue","tan","lightgreen","lemonchiffon","plum","pink","Wheat"];
+            var current_group = 0;
+            var selected_pos = undefined;
+            var support_cells = [];
+            var draw_arrows = false;
+            var pos_x = 0;
+            var pos_y = 0;
+            var current_cell = {};
+            var step_prog = 0;
+            var prog_is_made = false;
+
+            function get_group_id(x_pos, y_pos) {
+                return board[x_pos][y_pos].g;
+            }
+
+            function get_group_cells(group_id) {
+                let res = [];
+                for (let x = 0; x < board.length; x++) {
+                    let col = board[x];
+                    for (let y = 0; y < col.length; y++) {
+                        if (col[y].g == group_id)
+                            res.push(col[y]);
+                    }
+                }
+                return res;
+            }
+
+            function get_group_cell_positions(group_id) {
+                let res = [];
+                for (let x = 0; x < board.length; x++) {
+                    let col = board[x];
+                    for (let y = 0; y < col.length; y++) {
+                        if (col[y].g == group_id)
+                            res.push([x,y]);
+                    }
+                }
+                return res;
+            }
+
+            function get_solved_in_group(group) {
+                let res = [];
+                group.forEach(cell => {
+                    if (cell.opt.length == 1) {
+                        res.push(cell);
+                    }
+                });
+                return res;
+            }
+
+            function get_cells_with_candidate(cand, cells) {
+                res = [];
+                cells.forEach(cel => {
+                    if (cel.opt.includes(cand))
+                        res.push(cel);
+                });
+                return res;
+            }
+
+            function get_neighbours(x_pos, y_pos) {
+                let res = [];
+                for (let x = x_pos-1; x <= x_pos+1; x++) {
+                    if (x >= 0 && x < board.length) {
+                        for (let y = y_pos-1; y <= y_pos+1; y++) {
+                            if (y >= 0 && y < board[x].length) {
+                                if (!(x == x_pos && y == y_pos)) {
+                                    res.push(board[x][y]);
+                                }
+                            }
+                        }
+                    }
+                }
+                return res;
+            }
+
+            function get_neighbour_group_ids(x_pos, y_pos) {
+                let res = [];
+                get_neighbours(x_pos, y_pos).forEach(value => {
+                    if (value.g != board[x_pos][y_pos].g)
+                        if (!res.includes(value.g))
+                            res.push(value.g);
+                });
+                return res;
+            }
+
+            function is_neighbour(pos1, pos2) {
+                return (Math.abs(pos1[0]-pos2[0]) <= 1 && Math.abs(pos1[1]-pos2[1]) <= 1);
+            }
+
+            function get_neighbour_cells_in_group(x_pos, y_pos, group_id) {
+                let res = [];
+                get_group_cell_positions(group_id).forEach(pos => {
+                    if (Math.abs(x_pos-pos[0]) <= 1 && Math.abs(y_pos-pos[1]) <= 1) {
+                        res.push(board[pos[0]][pos[1]]);
+                    }
+                });
+                return res;
+            }
+
+            function get_non_neighbour_cells_in_group(x_pos, y_pos, group_id) {
+                let res = [];
+                get_group_cell_positions(group_id).forEach(pos => {
+                    if (Math.abs(x_pos-pos[0]) > 1 || Math.abs(y_pos-pos[1]) > 1) {
+                        res.push(board[pos[0]][pos[1]]);
+                    }
+                });
+                return res;
+            }
+
+            function step_part1(x,y,cell,group) {
+                //check if a cand only appears once in a group
+                if (cell.opt.length > 1) {
+                    let unique_number = undefined;
+                    cell.opt.forEach(v => {
+                        let finds = 0;
+                        group.forEach(c => {
+                            if (c.opt.includes(v))
+                                finds++;
+                        });
+                        if (finds == 1) {
+                            unique_number = v;
+                        }
+                    });
+                    if (unique_number !== undefined) {
+                        cell.to_be_set = [unique_number];
+                        document.getElementById("message").innerHTML = `Cell is solved as the candidate number ${unique_number} only appears in this cell in the group`;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function step_part2(x,y,cell,group) {
+                //remove cand of solved number in the group
+                if (cell.opt.length > 1) {
+                    let solved = get_solved_in_group(group);
+                    let to_be_removed = cell.opt.filter(value => {
+                        return solved.map(c => c.opt[0]).includes(value);
+                    });
+                    if (to_be_removed.length > 0) {
+                        document.getElementById("message").innerHTML = `Candidate(s) ${to_be_removed} is ruled out because of solved cell(s) in the group`;
+                        cell.to_be_set = cell.opt.filter(value => !solved.map(c => c.opt[0]).includes(value));
+                        support_cells = solved.filter(s => to_be_removed.includes(s.opt[0]));
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function step_part3(x,y,cell,group) {
+                //remove cand of solved neighbour cells
+                let to_be_removed = [];
+                get_neighbours(x, y).forEach(n_cell => {
+                    if (n_cell.opt.length == 1) {
+                        if (cell.opt.includes(n_cell.opt[0])) {
+                            to_be_removed.push(n_cell.opt[0]);
+                            support_cells.push(n_cell);
+                        }
+                    }
+                });
+                if (to_be_removed.length > 0) {
+                    document.getElementById("message").innerHTML = `Removing candidate(s) ${to_be_removed} due to solved neighbour cell(s)`;
+                    cell.to_be_set = cell.opt.filter(v => !to_be_removed.includes(v));
+                    return true;
+                }
+                return false;
+            }
+            
+            function step_part4(x,y,cell,group) {
+                //check each cand if the same number has to be in a neighbour cell
+                let neighbour_group_ids = get_neighbour_group_ids(x, y);
+                //console.log(neighbour_group_ids);
+                let to_remove = [];
+                cell.opt.forEach(c => {
+                    //console.log(c);
+                    let prev_non_neig_with_cand = [];
+                    neighbour_group_ids.forEach(g_id => {
+                        //skip groups smaller than cand number, those will not contain cand number
+                        if (get_group_cells(g_id).length >= c) {
+                            //check if cand exists in a non neighbour cell in the group, if so, it does not *have* to be in a neigbour cell
+                            let non_neig_cells_with_cand = get_cells_with_candidate(c, get_non_neighbour_cells_in_group(x, y, g_id));
+                            if (non_neig_cells_with_cand.length == 0) {
+                                //check neighbour cells in group if any contain the cand, if so we remove the cand.
+                                let neig_cells = get_neighbour_cells_in_group(x, y, g_id);
+                                let neig_cells_with_cand = get_cells_with_candidate(c, neig_cells);
+                                //if there is only one, then it is solved and will be catched in step 3
+                                let neig_cells_with_cand_not_solved = neig_cells_with_cand.filter(v => v.opt.length > 1);
+                                if (neig_cells_with_cand_not_solved.length > 0) {
+                                    support_cells = neig_cells_with_cand_not_solved;
+                                    if (!to_remove.includes(c))
+                                        to_remove.push(c);
+                                    document.getElementById("message").innerHTML = `Removing candidate(s) ${to_remove} because that number has to be in one of the neighbour cells`;
+                                }
+                            } 
+                        }
+                    });
+                });
+                if (to_remove.length > 0) {
+                    //document.getElementById("message").innerHTML = `Removing candidate(s) ${to_remove} because that number has to be in one of the neighbour cells`;
+                    cell.to_be_set = cell.opt.filter(v => !to_remove.includes(v));
+                    return true;
+                    
+                }
+                return false;
+            }
+
+            function step_part5(x,y,cell,group) {
+                //check each cand if the same number has to be in a neighbour cell
+                let neighbour_group_ids = get_neighbour_group_ids(x, y);
+                //console.log(neighbour_group_ids);
+                let to_remove = [];
+                let end = false;
+                cell.opt.forEach(c => {
+                    if (end) return;
+                    support_cells = [];
+                    //console.log(c);
+                    let prev_non_neig_with_cand = [];
+                    neighbour_group_ids.forEach(g_id => {
+                        if (end) return;
+                        //skip groups smaller than cand number, those will not contain cand number
+                        if (get_group_cells(g_id).length >= c) {
+                            //check if cand exists in a non neighbour cell in the group, if so, it does not *have* to be in a neigbour cell
+                            let neig_cells_with_cand = get_cells_with_candidate(c, get_neighbour_cells_in_group(x, y, g_id));
+                            let non_neig_cells_with_cand = get_cells_with_candidate(c, get_non_neighbour_cells_in_group(x, y, g_id));
+                            if (neig_cells_with_cand.length > 0 && non_neig_cells_with_cand.length > 0) {
+                                //cand exists in a non neighbour, check if same cand exists in a non neighbour in another group and if they are neighbours
+                                prev_non_neig_with_cand.forEach(gr => {
+                                    if (end) return;
+                                    let stop = false;
+                                    gr[0].forEach(ce => {
+                                        non_neig_cells_with_cand.forEach(ce2 => {
+                                            if (!is_neighbour(ce.pos, ce2.pos)) {
+                                                stop = true;
+                                            } else {
+                                                support_cells.push(...gr[1]);
+                                                support_cells.push(ce);
+                                                support_cells.push(ce2);
+                                            }
+                                        });
+                                    });
+                                    if (!stop) {
+                                        //check neighbour cells in group if any contain the cand, if so we remove the cand.
+                                        //if there is only one, then it is solved and will be catched in step 3
+                                        let neig_cells_with_cand_not_solved = get_cells_with_candidate(c, get_neighbour_cells_in_group(x, y, g_id)).filter(v => v.opt.length > 1);
+                                        if (neig_cells_with_cand_not_solved.length > 0) {
+                                            to_remove = [c];
+                                            support_cells.push(...neig_cells_with_cand_not_solved);
+                                            /* if (!to_remove.includes(c))
+                                                to_remove.push(c); */
+                                            document.getElementById("message").innerHTML = `Number ${to_remove} can be removed as it has to be in one of the neighbour cells because it also has to be in one of the other neighbouring cells`;
+                                            end = true;
+                                        }
+                                    }
+                                });
+                                prev_non_neig_with_cand.push([non_neig_cells_with_cand,neig_cells_with_cand]);
+                            }
+                        }
+                    });
+                });
+                if (to_remove.length > 0) {                    
+                    //document.getElementById("message").innerHTML = `Removing candidate(s) ${to_remove} because that number has to be in one of the neighbour cells`;
+                    cell.to_be_set = cell.opt.filter(v => !to_remove.includes(v));
+                    return true;
+                }
+                return false;
+            }
+
+            function circular_elimination(cell, cand, prev_group_id) {
+                let res = undefined;
+                get_neighbour_group_ids(cell.pos[0], cell.pos[1]).forEach(g_id => {
+                    if (res == undefined) {
+                        if (g_id != prev_group_id) {
+                            get_neighbour_cells_in_group(cell.pos[0], cell.pos[1], g_id).forEach(c => {
+                                if (res == undefined) {
+                                    //limit to cells with 2 candidates
+                                    if (c.opt.length == 2 && c.opt.includes(cand)) {
+                                        next_cand = c.opt.filter(v => v != cand)[0];
+                                        res = [c, next_cand, cell.g];
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+                return res;
+            }
+
+            function step_part6(x,y,cell,group) {
+                //"circular elimination". Candidated can be removed if they are the same in another cell in the group which
+                //will be affected through other groups. This is experimental and limited to cells with 2 candidates to reduce
+                //recursions. It should be enough to solve any board.
+                if (cell.opt.length > 1) {
+                    cell.opt.forEach(cand => {
+                        if (Object.hasOwn(cell, "to_be_set")) return;
+                        support_cells = [];
+                        let res = [cell, cand, -1];
+                        while (true) {
+                            res = circular_elimination(res[0], res[1], res[2]);
+                            if (res == undefined) {
+                                return;
+                            }
+                            support_cells.push(res[0]);
+                            if (res[0].g == cell.g) {
+                                //we have returned
+                                if (res[1] == cand) {
+                                    let last_cand = cand;
+                                    let chain = support_cells.map(s => {
+                                        let r = s.opt.filter(v => v != last_cand)[0]
+                                        last_cand = r;
+                                        return r;
+                                    });
+                                    document.getElementById("message").innerHTML = `Removing candidate ${cand} due to circular dependency. 
+                                    If cell would be a ${cand} then next cell has to be a ${chain[0]} 
+                                    and the next cell has to be a ${chain[1]} 
+                                    and the next cell has to be a ${chain[2]} 
+                                    which is not possible as it would be the same number as in the first cell`;
+                                    cell.to_be_set = cell.opt.filter(v => v != cand);
+                                    draw_arrows = true;
+                                }
+                                return;
+                            }
+                        }
+                        
+                    });
+                }
+                if (!Object.hasOwn(cell, "to_be_set")) support_cells = [];
+                return Object.hasOwn(cell, "to_be_set");
+            }
+
+            function check_if_solved(x,y,cell,group) {
+                let res = true;
+                board.forEach(col => col.forEach(cell => {
+                    if (cell.opt.length > 1) {
+                        res = false;
+                    }
+                }));
+                if (res)
+                    document.getElementById("message").innerHTML = "SOLVED!";
+                return res;
+            }
+            
+            function step() {
+                selected_pos = undefined;
+                
+                if (Object.hasOwn(current_cell, "to_be_set")) {
+                    current_cell.opt = current_cell.to_be_set;
+                    support_cells.forEach(c => document.getElementById(`${c.pos[0]},${c.pos[1]}`).classList.remove("support"));
+                    support_cells = [];
+                    if (current_cell.opt == 0) {
+                        update_board();
+                        document.getElementById("message").innerHTML = "Looks like something is wrong, there is no candidates left for this cell";
+                        return;
+                    }
+                    delete current_cell.to_be_set;
+                    document.getElementById(`${current_cell.pos[0]},${current_cell.pos[1]}`).classList.remove("highlight");
+                }
+                
+                let pause = false;
+                while(!pause) {
+                    //console.log(step_prog);
+
+                    current_cell = board[pos_x][pos_y];
+                    let group = get_group_cells(get_group_id(pos_x,pos_y));
+                    
+                    if (step_prog == 0)
+                        pause = step_part1(pos_x,pos_y,current_cell,group)
+                    else if (step_prog == 1)
+                        pause = step_part2(pos_x,pos_y,current_cell,group);
+                    else if (step_prog == 2) {
+                        if (check_if_solved(pos_x,pos_y,current_cell,group)) {
+                            update_board();
+                            return;
+                        }
+                    }
+                    else if (step_prog == 3)
+                        pause = step_part3(pos_x,pos_y,current_cell,group);
+                    else if (step_prog == 4)
+                        pause = step_part4(pos_x,pos_y,current_cell,group);
+                    else if (step_prog == 5)
+                        pause = step_part5(pos_x,pos_y,current_cell,group);
+                    else
+                        pause = step_part6(pos_x,pos_y,current_cell,group);
+                    
+                    pos_x = (pos_x+1)%board.length;
+                    if (pos_x==0)
+                        pos_y = (pos_y+1)%board[pos_x].length;
+                    if (pos_x==0 && pos_y==0) {
+                        step_prog = (step_prog+1)%7;
+                        if (step_prog == 0) {
+                            if (prog_is_made == false) {
+                                document.getElementById("message").innerHTML = `Unable to solve from here, you are on your own`;
+                                pause = true;
+                            }
+                            prog_is_made = false;
+                        }
+                    }
+                }
+
+                prog_is_made = true;
+                
+                update_board();
+                document.getElementById(`${current_cell.pos[0]},${current_cell.pos[1]}`).classList.add("highlight");
+                support_cells.forEach(c => document.getElementById(`${c.pos[0]},${c.pos[1]}`).classList.add("support"));
+
+                let arrows = Array.from(document.getElementsByClassName("arrow"));
+                for (let i = 0; i < arrows.length; i++) {
+                    arrows[i].remove();
+                }
+                
+                if (draw_arrows) {
+                    const rot_map =[[225,-90,-45],
+                                    [180,  0,  0],
+                                    [135, 90, 45]];
+                    support_cells.unshift(current_cell);
+                    for (let i = 0; i < support_cells.length-1; i++) {
+                        const sc = support_cells[i];
+                        const sc2 = support_cells[i+1];
+                        let rot = rot_map[sc2.pos[1]-sc.pos[1]+1][sc2.pos[0]-sc.pos[0]+1]
+                        console.log("arrow", sc.pos[0]*63+15, sc.pos[1]*63+15, rot);
+                        let arrow = document.createElementNS('http://www.w3.org/2000/svg',"path");
+                        arrow.setAttributeNS(null, "d", "M20,0 L50,0");
+                        arrow.setAttributeNS(null, "class", "arrow");
+                        arrow.setAttributeNS(null, "transform", `translate(${sc.pos[0]*63+45} ${sc.pos[1]*63+45}) rotate(${rot})`);
+                        document.getElementById("svg").appendChild(arrow);
+                        
+                    }
+                }
+            }
+
+            function update_board() {
+                for (let x = 0; x < board.length; x++) {
+                    let col = board[x];
+                    for (let y = 0; y < col.length; y++) {
+                        let cell = col[y];
+                        let elem = document.getElementById(`${x},${y}`);
+                        let cell_string = [];
+                        cell.opt.forEach(c => {
+                            if (Object.hasOwn(cell, "to_be_set") && !cell.to_be_set.includes(c))
+                                cell_string.push(`<span style="color: red">${c}</span>`);
+                            else
+                                cell_string.push(`${c}`);
+                        });
+                        elem.innerHTML=cell_string.join(',');
+                        elem.style = `background: ${group_colors[(cell.g%(group_colors.length-1))+1]}`;
+                        if (cell.opt.length == 1) elem.classList.add("solved");
+                        else elem.classList.remove("solved");
+                    }
+                }
+            }
+
+            function cell_clicked(e) {
+                let pos = e.target.id.split(",");
+                if (board[0][0].opt.length == 0) {
+                    //we are defining groups..
+                    board[pos[0]][pos[1]].g = current_group;
+                    update_board();
+
+                    //check if all cells have been defined
+                    let unset_cells = board.filter(col => {
+                        return (col.filter(cell => {
+                            return (cell.g == -1);
+                        }).length > 0);
+                    });
+                    if (unset_cells.length == 0) {
+                        //all cells have been defined, initialize candidates
+                        document.getElementById("btn_group").disabled = true;
+                        for (let x = 0; x < board.length; x++) {
+                            let col = board[x];
+                            for (let y = 0; y < col.length; y++) {
+                                let cell = col[y];
+                                let group = get_group_cells(get_group_id(x,y));
+                                for (let i=1; i <= group.length; i++)
+                                    cell.opt.push(i);
+                            }
+                        }
+                        set_cell_borders();
+                        update_board();
+                        document.getElementById("btn_group").disabled = true;
+                        document.getElementById("btn_step").disabled = false;
+                        document.getElementById("message").innerHTML = "Now you can edit cells by clicking one  cell and enter one or more candidate number(s). Use this to set the given cells for this game. Then click 'solve step' to get help. Remember to save your progress so that you can restore and try again."
+                    }
+                } else {
+                    //board is initialized, set cell as selected for keypress input
+                    if (selected_pos != undefined) {
+                        document.getElementById(`${selected_pos[0]},${selected_pos[1]}`).classList.remove("selected");
+                    }
+                    board[pos[0]][pos[1]].opt = [];
+                    update_board();
+                    e.target.classList.add("selected");
+                    selected_pos = pos;
+                    return;
+                }
+            }
+            
+            function on_load() {
+                document.addEventListener('keypress', (event) => {
+                    //edit candidate for selected cell
+                    if (selected_pos != undefined) {
+                        if(event.key == "Enter") {
+                            document.getElementById(`${selected_pos[0]},${selected_pos[1]}`).classList.remove("selected");
+                            selected_pos = undefined;
+                        } else if (Number(event.key) != NaN) {
+                            board[selected_pos[0]][selected_pos[1]].opt.push(Number(event.key));
+                        }
+                        update_board();
+                    }
+                }, false);             
+
+                document.getElementById('load_file').addEventListener('change', load_game, false);
+
+                document.getElementById("btn_group").disabled = true;
+                document.getElementById("btn_step").disabled = true;
+            }
+
+            function create_board() {
+                document.getElementById("btn_init").disabled = true;
+                let sizex = document.getElementById("xsize").value; //6;
+                let sizey = document.getElementById("ysize").value; //5;
+                //board = [];
+                for (let x = 0; x < sizex; x++) {
+                    let col = [];
+                    for (let y = 0; y < sizey; y++) {
+                        col.push({opt:[], g:-1, pos:[x,y]});
+                    }
+                    board.push(col);
+                }
+                Array.from(document.getElementById("board").children).forEach(elm => elm.remove());
+                for (let y = 0; y < sizey; y++) {
+                    let tr = document.createElement("tr");
+                    for (let x = 0; x < sizex; x++) {
+                        let td = document.createElement("td");
+                        td.id = `${x},${y}`;
+                        td.onclick = function(e) {cell_clicked(e)};
+                        tr.appendChild(td);
+                    }
+                    document.getElementById("board").appendChild(tr);
+                }
+                document.getElementById("message").innerHTML = "Click each cell in a group, then click the button 'new group' and repeat for next group"
+                document.getElementById("btn_group").disabled = false;
+            }
+
+            function set_cell_borders() {
+                for (let y = 0; y < board[0].length; y++) {
+                    let tr = document.createElement("tr");
+                    for (let x = 0; x < board.length; x++) {
+                        board[x][y].pos = [x,y];
+                        let elem = document.getElementById(`${x},${y}`);
+                        elem.classList.remove("right_border");
+                        elem.classList.remove("bottom_border");
+                        elem.classList.remove("left_border");
+                        elem.classList.remove("top_border");
+                        if (x == board.length-1 || board[x][y].g != board[x+1][y].g)
+                            elem.classList.add("right_border");
+                        if (y == board[0].length-1 || board[x][y].g != board[x][y+1].g)
+                            elem.classList.add("bottom_border");
+                        if (x == 0 || board[x][y].g != board[x-1][y].g)
+                            elem.classList.add("left_border");
+                        if (y == 0 || board[x][y].g != board[x][y-1].g)
+                            elem.classList.add("top_border");
+                    }
+                }
+            }
+
+            function load_game(e) {
+                let file = e.target.files[0];
+                if (!file) return;
+                
+                let reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        let loaded_board = JSON.parse(e.target.result);
+                        document.getElementById("xsize").value = loaded_board.length;
+                        document.getElementById("ysize").value = loaded_board[0].length;
+                        create_board();
+                        board = loaded_board;
+                    } catch (error) {
+                        alert("Error loading file: "+error);
+                        return;
+                    }
+                    set_cell_borders();
+                    update_board();
+                    step_prog = 0;
+                    document.getElementById("message").innerHTML = "Click a cell to edit or 'step solve' to get help";
+                    document.getElementById("btn_group").disabled = true;
+                    document.getElementById("btn_step").disabled = false;
+
+                };
+                reader.readAsText(file);
+            }
+
+            function save_game() {
+                let clone = JSON.parse(JSON.stringify(board));
+                clone.forEach(row => {
+                    row.forEach(cell => {
+                        if (Object.hasOwn("to_be_set", cell)) delete cell.to_be_set;
+                    })
+                })
+                let a = document.createElement('a');
+                let blob = new Blob([JSON.stringify(clone)], {'type':'text/json'});
+                a.href = window.URL.createObjectURL(blob);
+                a.download = `tectonic_${clone.length}x${clone[0].length}.json`;
+                a.click();
+                a.remove();
+            }
+
+        </script>
+
+    </head>
+
+    <body onload="on_load()">
+        <table>
+            <tr>
+                <h3 colspan="2">
+                    Tectonic helper (beta)
+                </h3>
+            </tr>
+            <tr>
+                <td style="width:auto; padding: 20px">
+                    Load a saved game..<br>
+                    Load from file:<input type="file" id="load_file"/>  <button onclick="save_game()">Save to file</button>
+                </td>
+                <td style="width:auto; padding: 20px">
+                    ..or create an empty board and define groups and given numbers:<br>
+                    width <input id="xsize" type="number" size="5"/> height <input id="ysize" type="number" size="5"/>
+                    <button id="btn_init" onclick="create_board()">create</button>
+                </td>
+            </tr>
+        </table>
+        <br>
+        <p id="message"></p>
+        <button id="btn_group" onclick="current_group++;">new group</button> <button id="btn_step" onclick="step()">solve step</button>
+        <div>
+            <table id="board" cellspacing="0" style="position: absolute;">
+            </table>
+            <svg id="svg" width="800" height="800" style="position: absolute; z-index: 9; pointer-events: none;">
+                <defs>
+                    <marker id="arrow" markerWidth="13" markerHeight="13" refx="2" refy="6" orient="auto">
+                        <path d="M2,2 L2,11 L10,6 L2,2" style="fill:red;" />
+                    </marker>
+                </defs>
+            </svg>
+        </div>
+    </body>
+</html>
